@@ -1,0 +1,58 @@
+
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+ricambi-manager
+server
+
+# Test
+*.test
+*.out
+
+# Go workspace
+*.work
+
+# Build
+/bin/
+/dist/
+
+# Dependency directories
+vendor/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+logs/
+audit/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary
+tmp/
+temp/
+*.tmp
+
+# MongoDB data
+data/
+mongo-data/
+EOF

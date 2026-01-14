@@ -1,0 +1,67 @@
+# configs/config.yaml
+
+app:
+  name: "Ricambi Manager"
+  version: "1.0.0"
+  environment: "production"
+
+mongodb:
+  uri: "${MONGODB_URI:mongodb://localhost:27017}"
+  database: "${MONGODB_DATABASE:ricambi_db}"
+  timeout_seconds: 10
+  pool:
+    min_pool_size: 5
+    max_pool_size: 50
+    max_idle_time_seconds: 300
+  indexes:
+    auto_create: true
+
+auth:
+  session_timeout_minutes: 480
+  password_cost: 12
+  max_failed_attempts: 5
+  lockout_duration_minutes: 30
+
+business:
+  fido:
+    warning_threshold_percent: 80
+    block_threshold_percent: 100
+  margin:
+    sottocosto_threshold_percent: 0
+    sottoguadagno_threshold_percent: 15
+  credit_voucher:
+    default_expiry_days: 365
+  search:
+    max_results: 100
+    fuzzy_threshold: 0.6
+
+barcode:
+  default_format: "EAN13"
+  printer_format: "ZPL"
+  label_width_mm: 50
+  label_height_mm: 30
+
+logging:
+  level: "info"
+  output: "logs/app.log"
+  max_size_mb: 100
+  max_backups: 10
+  max_age_days: 30
+  compress: true
+  audit_log: "logs/audit.log"
+
+ui:
+  refresh_rate_ms: 100
+  page_size: 20
+  theme:
+    primary: "#00ADD8"
+    secondary: "#5DC9E2"
+    success: "#00C851"
+    warning: "#FFD700"
+    danger: "#FF4444"
+    info: "#33B5E5"
+
+cache:
+  ttl_seconds: 300
+  max_items: 1000
+  cleanup_interval_seconds: 600
