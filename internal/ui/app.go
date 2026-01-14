@@ -1,4 +1,5 @@
 // internal/ui/app.go
+// Modernized Professional Application - Ricambi Manager
 
 package ui
 
@@ -17,6 +18,7 @@ import (
 	"ricambi-manager/pkg/auth"
 )
 
+// ViewState defines all possible views in the application
 type ViewState int
 
 const (
@@ -33,8 +35,10 @@ const (
 	ViewBudgets
 	ViewKits
 	ViewSettings
+	ViewHelp
 )
 
+// AppModel is the main application model
 type AppModel struct {
 	db          *mongo.Database
 	width       int
@@ -57,45 +61,110 @@ type AppModel struct {
 	discountUC *usecase.ManageDiscountsUseCase
 	stockUC    *usecase.ManageStockUseCase
 
-	loginView    *LoginView
-	mainMenuView *MainMenuView
-	searchView   *ArticleSearchView
+	loginView       *LoginView
+	mainMenuView    *MainMenuView
+	searchView      *ArticleSearchView
+	customerSearchView *CustomerSearchView
+	promotionsView  *PromotionsView
+	vouchersView    *VouchersView
+	budgetsView     *BudgetsView
+	kitsView        *KitsView
+	settingsView    *SettingsView
 
-	error   string
-	message string
-	loading bool
-
-	lastActivity   time.Time
+	error      string
+	message    string
+	loading    bool
+	lastActivity time.Time
 	sessionTimeout time.Duration
 }
 
+// LoginView handles user authentication
 type LoginView struct {
-	username   string
-	password   string
-	focusIndex int
-	error      string
+	username    string
+	password    string
+	focusIndex  int
+	error       string
+	showPassword bool
 }
 
+// MainMenuView displays the main navigation menu
 type MainMenuView struct {
 	selectedIndex int
 	menuItems     []MenuItem
+	stats         DashboardStats
 }
 
+// DashboardStats shows key metrics on main screen
+type DashboardStats struct {
+	totalArticles   int
+	lowStockItems   int
+	activeCustomers int
+	pendingOrders   int
+}
+
+// MenuItem represents a menu option
 type MenuItem struct {
 	Label       string
 	Description string
+	Shortcut    string
 	View        ViewState
 	Enabled     bool
+	Icon        string
 }
 
+// ArticleSearchView handles article search functionality
 type ArticleSearchView struct {
-	query         string
-	searchType    string
-	results       []*domain.Article
-	selectedIndex int
-	loading       bool
+	query          string
+	searchType     string
+	results        []*domain.Article
+	selectedIndex  int
+	loading        bool
+	searchTypes    []string
+	filtersActive  bool
 }
 
+// CustomerSearchView handles customer search
+type CustomerSearchView struct {
+	query          string
+	results        []*domain.Customer
+	selectedIndex  int
+	loading        bool
+}
+
+// PromotionsView shows active promotions
+type PromotionsView struct {
+	promotions   []*domain.Promotion
+	selectedIndex int
+	loading      bool
+}
+
+// VouchersView handles credit vouchers
+type VouchersView struct {
+	vouchers     []*domain.CreditVoucher
+	selectedIndex int
+	loading      bool
+}
+
+// BudgetsView shows budget information
+type BudgetsView struct {
+	budgets     []*domain.Budget
+	selectedIndex int
+	loading     bool
+}
+
+// KitsView manages kit operations
+type KitsView struct {
+	kits        []*domain.Kit
+	selectedIndex int
+	loading     bool
+}
+
+// SettingsView handles system configuration
+type SettingsView struct {
+	activeTab   int
+}
+
+// Message types
 type loginResultMsg struct {
 	operator *domain.Operator
 	err      error
@@ -103,6 +172,11 @@ type loginResultMsg struct {
 
 type searchResultMsg struct {
 	results []*domain.Article
+	err     error
+}
+
+type customerSearchResultMsg struct {
+	results []*domain.Customer
 	err     error
 }
 
@@ -133,6 +207,12 @@ func NewAppModel(db *mongo.Database) *AppModel {
 		loginView:      &LoginView{},
 		mainMenuView:   &MainMenuView{selectedIndex: 0},
 		searchView:     &ArticleSearchView{},
+		customerSearchView: &CustomerSearchView{},
+		promotionsView:  &PromotionsView{},
+		vouchersView:    &VouchersView{},
+		budgetsView:     &BudgetsView{},
+		kitsView:        &KitsView{},
+		settingsView:    &SettingsView{},
 		sessionTimeout: 480 * time.Minute,
 		lastActivity:   time.Now(),
 	}
@@ -157,6 +237,9 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case searchResultMsg:
 		return m.handleSearchResult(msg)
 
+	case customerSearchResultMsg:
+		return m.handleCustomerSearchResult(msg)
+
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "q":
@@ -166,6 +249,12 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.navigateBack(), nil
 
 		case "esc":
+			return m.navigateBack(), nil
+
+		case "?":
+			if m.currentView != ViewHelp {
+				return m.navigateTo(ViewHelp), nil
+			}
 			return m.navigateBack(), nil
 		}
 	}
@@ -177,6 +266,18 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateMainMenu(msg)
 	case ViewArticleSearch:
 		return m.updateArticleSearch(msg)
+	case ViewCustomerSearch:
+		return m.updateCustomerSearch(msg)
+	case ViewPromotions:
+		return m.updatePromotions(msg)
+	case ViewCreditVouchers:
+		return m.updateVouchers(msg)
+	case ViewBudgets:
+		return m.updateBudgets(msg)
+	case ViewKits:
+		return m.updateKits(msg)
+	case ViewSettings:
+		return m.updateSettings(msg)
 	default:
 		return m, nil
 	}
@@ -184,11 +285,13 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m *AppModel) View() string {
 	if m.width == 0 {
-		return "Loading..."
+		return "Inizializzazione..."
 	}
 
 	header := m.renderHeader()
-	footer := m.renderFooter()
+	sidebar := m.renderSidebar()
+	statusBar := m.renderStatusBar()
+	help := m.renderHelp()
 
 	var content string
 	switch m.currentView {
@@ -198,42 +301,74 @@ func (m *AppModel) View() string {
 		content = m.viewMainMenu()
 	case ViewArticleSearch:
 		content = m.viewArticleSearch()
+	case ViewCustomerSearch:
+		content = m.viewCustomerSearch()
+	case ViewPromotions:
+		content = m.viewPromotions()
+	case ViewCreditVouchers:
+		content = m.viewVouchers()
+	case ViewBudgets:
+		content = m.viewBudgets()
+	case ViewKits:
+		content = m.viewKits()
+	case ViewSettings:
+		content = m.viewSettings()
+	case ViewHelp:
+		content = m.viewHelp()
 	default:
-		content = "View not implemented"
+		content = "Vista non implementata"
 	}
+
+	mainArea := lipgloss.JoinHorizontal(
+		lipgloss.Left,
+		sidebar,
+		lipgloss.NewStyle().Width(m.width - lipgloss.Width(sidebar)).Render(content),
+	)
+
+	footerArea := lipgloss.JoinVertical(
+		lipgloss.Left,
+		statusBar,
+		help,
+	)
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
 		header,
-		content,
-		footer,
+		mainArea,
+		footerArea,
 	)
 }
 
 func (m *AppModel) renderHeader() string {
-	title := "🚗 Ricambi Manager"
+	now := time.Now()
+	datetime := now.Format("15:04 • 02/01/2006")
+
+	var title string
 	if m.operator != nil {
-		title += fmt.Sprintf(" • %s", m.operator.FullName)
+		title = fmt.Sprintf(" %s %s", m.operator.FullName, m.getRoleBadge())
+	} else {
+		title = " Ricambi Manager"
 	}
 
-	now := time.Now()
-	datetime := now.Format("15:04:05 • 02/01/2006")
+	titleStyled := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ColorFg).
+		Render(title)
 
-	leftPart := TitleStyle.Render(title)
-	rightPart := DateTimeStyle.Render(datetime)
+	datetimeStyled := DateTimeStyle.Render(datetime)
 
-	leftWidth := lipgloss.Width(leftPart)
-	rightWidth := lipgloss.Width(rightPart)
+	leftWidth := lipgloss.Width(titleStyled)
+	rightWidth := lipgloss.Width(datetimeStyled)
 	spacer := m.width - leftWidth - rightWidth - 2
 	if spacer < 0 {
 		spacer = 0
 	}
 
-	headerLine := leftPart + lipgloss.NewStyle().Width(spacer).Render("") + rightPart
+	headerLine := titleStyled + lipgloss.NewStyle().Width(spacer).Render("") + datetimeStyled
 
 	separator := lipgloss.NewStyle().
 		Foreground(ColorBorder).
-		Render(lipgloss.NewStyle().Width(m.width).Render("─"))
+		Render(lipgloss.NewStyle().Width(m.width).Render("━"))
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -242,47 +377,126 @@ func (m *AppModel) renderHeader() string {
 	)
 }
 
-func (m *AppModel) renderFooter() string {
-	breadcrumb := m.renderBreadcrumb()
-	help := m.renderHelp()
+func (m *AppModel) renderSidebar() string {
+	if m.currentView == ViewLogin {
+		return ""
+	}
 
-	return lipgloss.JoinVertical(
-		lipgloss.Left,
-		breadcrumb,
-		help,
-	)
+	items := []string{}
+	for i, item := range m.mainMenuView.menuItems {
+		if !item.Enabled {
+			continue
+		}
+
+		shortcut := ShortcutKeyStyle.Render(item.Shortcut)
+		icon := lipgloss.NewStyle().Foreground(ColorMuted).Render(item.Icon)
+		label := item.Label
+
+		if i == m.mainMenuView.selectedIndex && m.currentView == ViewMainMenu {
+			row := lipgloss.JoinHorizontal(
+				lipgloss.Left,
+				shortcut,
+				" ",
+				lipgloss.NewStyle().Foreground(ColorPrimary).Render(icon),
+				" ",
+				lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true).Render(label),
+			)
+			items = append(items, SelectedItemStyle.Render(row))
+		} else if m.currentView == item.View {
+			row := lipgloss.JoinHorizontal(
+				lipgloss.Left,
+				shortcut,
+				" ",
+				icon,
+				" ",
+				lipgloss.NewStyle().Foreground(ColorPrimary).Bold(true).Render(label),
+			)
+			items = append(items, SelectedItemStyle.Render(row))
+		} else {
+			row := lipgloss.JoinHorizontal(
+				lipgloss.Left,
+				shortcut,
+				" ",
+				icon,
+				" ",
+				UnselectedItemStyle.Render(label),
+			)
+			items = append(items, row)
+		}
+	}
+
+	menuContent := lipgloss.JoinVertical(lipgloss.Left, items...)
+
+	sidebarWidth := 24
+	return lipgloss.NewStyle().
+		Width(sidebarWidth).
+		BorderRight(true).
+		BorderForeground(ColorBorder).
+		Padding(1, 0).
+		Render(menuContent)
 }
 
-func (m *AppModel) renderBreadcrumb() string {
-	parts := []string{"Home"}
-
-	for _, view := range m.viewStack {
-		parts = append(parts, m.getViewName(view))
-	}
-	parts = append(parts, m.getViewName(m.currentView))
-
-	breadcrumb := ""
-	for i, part := range parts {
-		if i > 0 {
-			breadcrumb += " > "
-		}
-		breadcrumb += part
+func (m *AppModel) renderStatusBar() string {
+	if m.currentView == ViewLogin {
+		return ""
 	}
 
-	return BreadcrumbStyle.Render(breadcrumb)
+	var leftItems []string
+	var rightItems []string
+
+	// Session info
+	if m.operator != nil {
+		leftItems = append(leftItems, StatusBarItemStyle.Render("👤 "+m.operator.Username))
+	}
+
+	// View context info
+	rightItems = append(rightItems, StatusBarItemStyle.Render(m.getViewName(m.currentView)))
+
+	// Loading indicator
+	if m.loading {
+		rightItems = append(rightItems, StatusBarItemStyle.Render("⏳"))
+	}
+
+	leftContent := lipgloss.JoinHorizontal(lipgloss.Left, leftItems...)
+	rightContent := lipgloss.JoinHorizontal(lipgloss.Right, rightItems...)
+
+	leftWidth := lipgloss.Width(leftContent)
+	rightWidth := lipgloss.Width(rightContent)
+	spacer := m.width - leftWidth - rightWidth - 2
+	if spacer < 0 {
+		spacer = 0
+	}
+
+	return StatusBarStyle.Render(leftContent + lipgloss.NewStyle().Width(spacer).Render("") + rightContent)
 }
 
 func (m *AppModel) renderHelp() string {
-	help := ""
+	if m.currentView == ViewLogin {
+		return HelpStyle.Render(" TAB: campo successivo  •  ENTER: login  •  CTRL+C: esci")
+	}
+
+	var help string
 	switch m.currentView {
-	case ViewLogin:
-		help = "tab: campo successivo • enter: login • ctrl+c: esci"
 	case ViewMainMenu:
-		help = "1-7: selezione rapida • ↑/↓: naviga • enter: conferma • q: esci"
+		help = " ↑/↓: naviga  •  ENTER: seleziona  •  [1-7]: accesso rapido  •  ?: aiuto  •  Q: esci"
 	case ViewArticleSearch:
-		help = "tab: tipo ricerca • digita: cerca • ↑/↓: naviga • enter: seleziona • esc: indietro"
+		help = " TAB: tipo ricerca  •  digita: cerca  •  ↑/↓: naviga  •  ENTER: dettagli  •  ESC: indietro"
+	case ViewCustomerSearch:
+		help = " digita: cerca  •  ↑/↓: naviga  •  ENTER: dettagli cliente  •  ESC: indietro"
+	case ViewPromotions:
+		help = " ↑/↓: naviga  •  ENTER: dettagli  •  N: nuova promozione  •  ESC: indietro"
+	case ViewCreditVouchers:
+		help = " ↑/↓: naviga  •  N: nuovo buono  •  ENTER: utilizza  •  ESC: indietro"
+	case ViewBudgets:
+		help = " ↑/↓: naviga  •  ENTER: dettagli  •  ESC: indietro"
+	case ViewKits:
+		help = " ↑/↓: naviga  •  N: nuovo kit  •  ENTER: modifica  •  ESC: indietro"
+	case ViewSettings:
+		help = " ↑/↓: naviga  •  TAB: schede  •  ENTER: modifica  •  ESC: indietro"
+	case ViewHelp:
+		help = " ESC: chiudi aiuto"
 	default:
-		help = "esc: indietro • q: esci"
+		help = " ESC: indietro  •  Q: esci"
 	}
 
 	return HelpStyle.Render(help)
@@ -298,8 +512,14 @@ func (m *AppModel) getViewName(view ViewState) string {
 		return "Ricerca Articoli"
 	case ViewArticleList:
 		return "Lista Articoli"
+	case ViewArticleDetail:
+		return "Dettaglio Articolo"
 	case ViewCustomerSearch:
 		return "Ricerca Clienti"
+	case ViewCustomerList:
+		return "Lista Clienti"
+	case ViewCustomerDetail:
+		return "Dettaglio Cliente"
 	case ViewPromotions:
 		return "Promozioni"
 	case ViewCreditVouchers:
@@ -308,9 +528,23 @@ func (m *AppModel) getViewName(view ViewState) string {
 		return "Budget"
 	case ViewKits:
 		return "Kit"
+	case ViewSettings:
+		return "Impostazioni"
+	case ViewHelp:
+		return "Aiuto"
 	default:
 		return "Unknown"
 	}
+}
+
+func (m *AppModel) getRoleBadge() string {
+	if m.operator == nil {
+		return ""
+	}
+	if m.operator.IsAdmin() {
+		return BadgePrimaryStyle.Render("ADMIN")
+	}
+	return BadgeInfoStyle.Render("OPERATORE")
 }
 
 func (m *AppModel) navigateTo(view ViewState) *AppModel {
@@ -344,139 +578,13 @@ func (m *AppModel) clearMessages() {
 
 func (m *AppModel) initMainMenu() {
 	m.mainMenuView.menuItems = []MenuItem{
-		{Label: "🔍 Ricerca Articoli", Description: "Cerca e gestisci articoli", View: ViewArticleSearch, Enabled: true},
-		{Label: "👥 Gestione Clienti", Description: "Gestisci anagrafica clienti", View: ViewCustomerSearch, Enabled: true},
-		{Label: "🎁 Promozioni", Description: "Gestisci promozioni attive", View: ViewPromotions, Enabled: true},
-		{Label: "💰 Buoni Credito", Description: "Gestisci buoni a credito", View: ViewCreditVouchers, Enabled: true},
-		{Label: "📊 Budget", Description: "Monitora obiettivi di vendita", View: ViewBudgets, Enabled: true},
-		{Label: "📦 Kit", Description: "Gestisci kit di vendita", View: ViewKits, Enabled: true},
-		{Label: "⚙️  Impostazioni", Description: "Configurazione sistema", View: ViewSettings, Enabled: m.operator.IsAdmin()},
-	}
-}
-
-func (m *AppModel) viewLogin() string {
-	title := TitleStyle.Render("🔐 Login - Ricambi Manager")
-
-	usernameLabel := "Username:"
-	passwordLabel := "Password:"
-
-	usernameField := m.loginView.username
-	if m.loginView.focusIndex == 0 {
-		usernameField = InputFocusedStyle.Render(usernameField + "█")
-	} else {
-		usernameField = InputStyle.Render(usernameField)
-	}
-
-	passwordField := ""
-	for range m.loginView.password {
-		passwordField += "*"
-	}
-	if m.loginView.focusIndex == 1 {
-		passwordField = InputFocusedStyle.Render(passwordField + "█")
-	} else {
-		passwordField = InputStyle.Render(passwordField)
-	}
-
-	form := lipgloss.JoinVertical(
-		lipgloss.Left,
-		usernameLabel,
-		usernameField,
-		"",
-		passwordLabel,
-		passwordField,
-		"",
-		ButtonStyle.Render("[ Login ]"),
-	)
-
-	content := lipgloss.JoinVertical(
-		lipgloss.Center,
-		title,
-		"",
-		form,
-	)
-
-	if m.loginView.error != "" {
-		content = lipgloss.JoinVertical(
-			lipgloss.Center,
-			content,
-			"",
-			ErrorStyle.Render("❌ "+m.loginView.error),
-		)
-	}
-
-	availableHeight := m.height - 6
-
-	return lipgloss.Place(
-		m.width,
-		availableHeight,
-		lipgloss.Center,
-		lipgloss.Center,
-		ContentStyle.Render(content),
-	)
-}
-
-func (m *AppModel) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
-		switch msg.String() {
-		case "tab", "down":
-			m.loginView.focusIndex = (m.loginView.focusIndex + 1) % 2
-			return m, nil
-
-		case "shift+tab", "up":
-			m.loginView.focusIndex--
-			if m.loginView.focusIndex < 0 {
-				m.loginView.focusIndex = 1
-			}
-			return m, nil
-
-		case "enter":
-			return m, m.performLogin()
-
-		case "backspace":
-			if m.loginView.focusIndex == 0 && len(m.loginView.username) > 0 {
-				m.loginView.username = m.loginView.username[:len(m.loginView.username)-1]
-			} else if m.loginView.focusIndex == 1 && len(m.loginView.password) > 0 {
-				m.loginView.password = m.loginView.password[:len(m.loginView.password)-1]
-			}
-			return m, nil
-
-		default:
-			if len(msg.String()) == 1 {
-				if m.loginView.focusIndex == 0 {
-					m.loginView.username += msg.String()
-				} else {
-					m.loginView.password += msg.String()
-				}
-			}
-			return m, nil
-		}
-	}
-	return m, nil
-}
-
-func (m *AppModel) performLogin() tea.Cmd {
-	return func() tea.Msg {
-		ctx := context.Background()
-		operator, err := m.operatorRepo.FindByUsername(ctx, m.loginView.username)
-		if err != nil {
-			return loginResultMsg{err: err}
-		}
-
-		if err := operator.CheckPassword(m.loginView.password); err != nil {
-			_ = m.operatorRepo.Update(ctx, operator)
-			return loginResultMsg{err: err}
-		}
-
-		session, err := m.authService.CreateSession(operator, "localhost", "TUI")
-		if err != nil {
-			return loginResultMsg{err: err}
-		}
-
-		operator.SessionToken = session.Token
-		_ = m.operatorRepo.Update(ctx, operator)
-
-		return loginResultMsg{operator: operator}
+		{"Ricerca Articoli", "Cerca e gestisci articoli", "1", ViewArticleSearch, true, "🔍"},
+		{"Clienti", "Gestisci anagrafica clienti", "2", ViewCustomerSearch, true, "👥"},
+		{"Promozioni", "Gestisci promozioni attive", "3", ViewPromotions, true, "🎁"},
+		{"Buoni Credito", "Gestisci buoni a credito", "4", ViewCreditVouchers, true, "💰"},
+		{"Budget", "Monitora obiettivi vendite", "5", ViewBudgets, true, "📊"},
+		{"Kit", "Gestisci kit di vendita", "6", ViewKits, true, "📦"},
+		{"Impostazioni", "Configurazione sistema", "7", ViewSettings, m.operator.IsAdmin(), "⚙️"},
 	}
 }
 
@@ -498,17 +606,79 @@ func (m *AppModel) handleLoginResult(msg loginResultMsg) (*AppModel, tea.Cmd) {
 }
 
 func (m *AppModel) handleSearchResult(msg searchResultMsg) (*AppModel, tea.Cmd) {
-	m.searchView.loading = false
-
 	if msg.err != nil {
 		m.setError(msg.err.Error())
-		m.searchView.results = []*domain.Article{}
-		return m, nil
+	} else {
+		m.searchView.results = msg.results
+		m.searchView.loading = false
+		m.searchView.selectedIndex = 0
 	}
-
-	m.clearMessages()
-	m.searchView.results = msg.results
-	m.searchView.selectedIndex = 0
-
 	return m, nil
+}
+
+func (m *AppModel) handleCustomerSearchResult(msg customerSearchResultMsg) (*AppModel, tea.Cmd) {
+	if msg.err != nil {
+		m.setError(msg.err.Error())
+	} else {
+		m.customerSearchView.results = msg.results
+		m.customerSearchView.loading = false
+		m.customerSearchView.selectedIndex = 0
+	}
+	return m, nil
+}
+
+func (m *AppModel) performSearch() tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+
+		var results []*domain.Article
+		var err error
+
+		switch m.searchView.searchType {
+		case "code":
+			searchResult, searchErr := m.searchUC.SearchByCode(ctx, m.searchView.query, 20)
+			if searchErr == nil && searchResult != nil {
+				results = searchResult.Articles
+			}
+			err = searchErr
+
+		case "description":
+			searchResult, searchErr := m.searchUC.SearchByDescription(ctx, m.searchView.query, 20)
+			if searchErr == nil && searchResult != nil {
+				results = searchResult.Articles
+			}
+			err = searchErr
+
+		case "barcode":
+			article, searchErr := m.searchUC.SearchByBarcode(ctx, m.searchView.query)
+			if searchErr == nil && article != nil {
+				results = []*domain.Article{article}
+			}
+			err = searchErr
+
+		default:
+			searchResult, searchErr := m.searchUC.FuzzySearch(ctx, m.searchView.query, 20)
+			if searchErr == nil && searchResult != nil {
+				results = searchResult.Articles
+			}
+			err = searchErr
+		}
+
+		return searchResultMsg{results: results, err: err}
+	}
+}
+
+func (m *AppModel) performCustomerSearch() tea.Cmd {
+	return func() tea.Msg {
+		ctx := context.Background()
+
+		var results []*domain.Customer
+		var err error
+
+		if len(m.customerSearchView.query) >= 2 {
+			results, err = m.customerRepo.Search(ctx, m.customerSearchView.query, 20)
+		}
+
+		return customerSearchResultMsg{results: results, err: err}
+	}
 }
