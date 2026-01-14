@@ -15,20 +15,14 @@ import (
 func (m *AppModel) viewArticleSearch() string {
 	title := TitleStyle.Render("🔍 Ricerca Articoli")
 
-	searchTypeLabel := "Tipo di ricerca: "
-	searchTypes := []string{"Codice", "Descrizione", "Barcode", "Applicabilità"}
-	currentType := searchTypes[0]
-	switch m.searchView.searchType {
-	case "code":
-		currentType = searchTypes[0]
-	case "description":
-		currentType = searchTypes[1]
-	case "barcode":
-		currentType = searchTypes[2]
-	case "applicability":
-		currentType = searchTypes[3]
+	searchTypeLabel := "Tipo: "
+	searchTypes := map[string]string{
+		"code":          "Codice",
+		"description":   "Descrizione",
+		"barcode":       "Barcode",
+		"applicability": "Applicabilità",
 	}
-
+	currentType := searchTypes[m.searchView.searchType]
 	searchTypeDisplay := searchTypeLabel + BadgeStyle.Render(currentType)
 
 	queryLabel := "Query:"
@@ -38,28 +32,40 @@ func (m *AppModel) viewArticleSearch() string {
 	}
 	queryDisplay := InputFocusedStyle.Render(queryField + "█")
 
-	searchBox := lipgloss.JoinVertical(
+	searchBox := CardStyle.Render(lipgloss.JoinVertical(
 		lipgloss.Left,
 		searchTypeDisplay,
 		"",
 		queryLabel,
 		queryDisplay,
-	)
+	))
 
 	resultsTitle := SubtitleStyle.Render(fmt.Sprintf("Risultati (%d)", len(m.searchView.results)))
 
 	var resultsList string
 	if m.searchView.loading {
-		resultsList = InfoStyle.Render("⏳ Caricamento...")
+		resultsList = InfoStyle.Render("⏳ Caricamento in corso...")
 	} else if len(m.searchView.results) == 0 {
 		if len(m.searchView.query) > 0 {
-			resultsList = InfoStyle.Render("Nessun risultato trovato")
+			resultsList = InfoStyle.Render("🔍 Nessun risultato trovato")
 		} else {
-			resultsList = InfoStyle.Render("Inizia a digitare per cercare")
+			resultsList = InfoStyle.Render("💡 Inizia a digitare per cercare")
 		}
 	} else {
 		var items []string
-		for i, article := range m.searchView.results {
+		maxVisible := m.height - 20
+		if maxVisible < 5 {
+			maxVisible = 5
+		}
+
+		start := m.searchView.scrollOffset
+		end := start + maxVisible
+		if end > len(m.searchView.results) {
+			end = len(m.searchView.results)
+		}
+
+		for i := start; i < end; i++ {
+			article := m.searchView.results[i]
 			stockBadge := ""
 			if article.Stock.Available > 0 {
 				stockBadge = BadgeSuccessStyle.Render(fmt.Sprintf("%.0f", article.Stock.Available))
@@ -71,26 +77,35 @@ func (m *AppModel) viewArticleSearch() string {
 
 			itemText := fmt.Sprintf("%s - %s %s %s",
 				article.Code,
-				article.Description,
+				truncateString(article.Description, 50),
 				stockBadge,
 				priceBadge,
 			)
 
 			if i == m.searchView.selectedIndex {
-				items = append(items, SelectedItemStyle.Render("► "+itemText))
+				items = append(items, SelectedItemStyle.Render(fmt.Sprintf("  %s", itemText)))
 			} else {
-				items = append(items, UnselectedItemStyle.Render("  "+itemText))
+				items = append(items, UnselectedItemStyle.Render(fmt.Sprintf("  %s", itemText)))
 			}
 		}
+
+		if len(m.searchView.results) > maxVisible {
+			scrollInfo := fmt.Sprintf("%d/%d", m.searchView.selectedIndex+1, len(m.searchView.results))
+			items = append(items, lipgloss.NewStyle().
+				Foreground(ColorMuted).
+				MarginTop(1).
+				Render(fmt.Sprintf("  ── %s ──", scrollInfo)))
+		}
+
 		resultsList = lipgloss.JoinVertical(lipgloss.Left, items...)
 	}
 
-	results := lipgloss.JoinVertical(
+	resultsBox := ContentStyle.Render(lipgloss.JoinVertical(
 		lipgloss.Left,
 		resultsTitle,
 		"",
 		resultsList,
-	)
+	))
 
 	content := lipgloss.JoinVertical(
 		lipgloss.Left,
@@ -98,18 +113,8 @@ func (m *AppModel) viewArticleSearch() string {
 		"",
 		searchBox,
 		"",
-		"",
-		results,
+		resultsBox,
 	)
-
-	if m.error != "" {
-		content = lipgloss.JoinVertical(
-			lipgloss.Left,
-			content,
-			"",
-			ErrorStyle.Render("❌ "+m.error),
-		)
-	}
 
 	availableHeight := m.height - 6
 
@@ -120,6 +125,13 @@ func (m *AppModel) viewArticleSearch() string {
 		lipgloss.Top,
 		lipgloss.NewStyle().Padding(1, 2).Render(content),
 	)
+}
+
+func truncateString(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen-3] + "..."
 }
 
 func (m *AppModel) updateArticleSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -136,18 +148,59 @@ func (m *AppModel) updateArticleSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			m.searchView.query = ""
 			m.searchView.results = []*domain.Article{}
+			m.searchView.selectedIndex = 0
+			m.searchView.scrollOffset = 0
 			return m, nil
 
 		case "up":
 			if m.searchView.selectedIndex > 0 {
 				m.searchView.selectedIndex--
+				m.updateScrollOffset()
 			}
 			return m, nil
 
 		case "down":
 			if m.searchView.selectedIndex < len(m.searchView.results)-1 {
 				m.searchView.selectedIndex++
+				m.updateScrollOffset()
 			}
+			return m, nil
+
+		case "pageup":
+			maxVisible := m.height - 20
+			if maxVisible < 5 {
+				maxVisible = 5
+			}
+			m.searchView.selectedIndex -= maxVisible
+			if m.searchView.selectedIndex < 0 {
+				m.searchView.selectedIndex = 0
+			}
+			m.updateScrollOffset()
+			return m, nil
+
+		case "pagedown":
+			maxVisible := m.height - 20
+			if maxVisible < 5 {
+				maxVisible = 5
+			}
+			m.searchView.selectedIndex += maxVisible
+			if m.searchView.selectedIndex >= len(m.searchView.results) {
+				m.searchView.selectedIndex = len(m.searchView.results) - 1
+			}
+			m.updateScrollOffset()
+			return m, nil
+
+		case "home":
+			m.searchView.selectedIndex = 0
+			m.searchView.scrollOffset = 0
+			return m, nil
+
+		case "end":
+			m.searchView.selectedIndex = len(m.searchView.results) - 1
+			if m.searchView.selectedIndex < 0 {
+				m.searchView.selectedIndex = 0
+			}
+			m.updateScrollOffset()
 			return m, nil
 
 		case "enter":
@@ -184,7 +237,22 @@ func (m *AppModel) updateArticleSearch(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *AppModel) updateScrollOffset() {
+	maxVisible := m.height - 20
+	if maxVisible < 5 {
+		maxVisible = 5
+	}
+
+	if m.searchView.selectedIndex < m.searchView.scrollOffset {
+		m.searchView.scrollOffset = m.searchView.selectedIndex
+	} else if m.searchView.selectedIndex >= m.searchView.scrollOffset+maxVisible {
+		m.searchView.scrollOffset = m.searchView.selectedIndex - maxVisible + 1
+	}
+}
+
 func (m *AppModel) performSearch() tea.Cmd {
+	m.searchView.loading = true
+
 	return func() tea.Msg {
 		ctx := context.Background()
 

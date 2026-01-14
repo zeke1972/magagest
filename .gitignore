@@ -5,7 +5,6 @@
 *.so
 *.dylib
 ricambi-manager
-server
 
 # Test
 *.test

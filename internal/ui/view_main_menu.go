@@ -25,11 +25,19 @@ func (m *AppModel) viewMainMenu() string {
 		shortcut := ShortcutStyle.Render(fmt.Sprintf("[%d]", shortcutNum))
 		label := item.Label
 
+		var itemLine string
 		if i == m.mainMenuView.selectedIndex {
-			itemLine := SelectedItemStyle.Render("  ► " + shortcut + " " + label)
+			itemLine = SelectedItemStyle.Render(fmt.Sprintf("  %s  %s", shortcut, label))
 			menuItems = append(menuItems, itemLine)
+			if item.Description != "" {
+				descLine := lipgloss.NewStyle().
+					Foreground(ColorMuted).
+					MarginLeft(8).
+					Render("  └─ " + item.Description)
+				menuItems = append(menuItems, descLine)
+			}
 		} else {
-			itemLine := UnselectedItemStyle.Render("    " + shortcut + " " + label)
+			itemLine = UnselectedItemStyle.Render(fmt.Sprintf("  %s  %s", shortcut, label))
 			menuItems = append(menuItems, itemLine)
 		}
 
@@ -53,24 +61,6 @@ func (m *AppModel) viewMainMenu() string {
 		"",
 		menuBox,
 	)
-
-	if m.message != "" {
-		content = lipgloss.JoinVertical(
-			lipgloss.Left,
-			content,
-			"",
-			SuccessStyle.Render("✓ "+m.message),
-		)
-	}
-
-	if m.error != "" {
-		content = lipgloss.JoinVertical(
-			lipgloss.Left,
-			content,
-			"",
-			ErrorStyle.Render("❌ "+m.error),
-		)
-	}
 
 	availableHeight := m.height - 6
 
@@ -114,27 +104,27 @@ func (m *AppModel) updateMainMenu(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case "up", "k":
-			if m.mainMenuView.selectedIndex > 0 {
+			m.mainMenuView.selectedIndex--
+			if m.mainMenuView.selectedIndex < 0 {
+				m.mainMenuView.selectedIndex = len(m.mainMenuView.menuItems) - 1
+			}
+			for !m.mainMenuView.menuItems[m.mainMenuView.selectedIndex].Enabled {
 				m.mainMenuView.selectedIndex--
-				for !m.mainMenuView.menuItems[m.mainMenuView.selectedIndex].Enabled {
-					m.mainMenuView.selectedIndex--
-					if m.mainMenuView.selectedIndex < 0 {
-						m.mainMenuView.selectedIndex = 0
-						break
-					}
+				if m.mainMenuView.selectedIndex < 0 {
+					m.mainMenuView.selectedIndex = len(m.mainMenuView.menuItems) - 1
 				}
 			}
 			return m, nil
 
 		case "down", "j":
-			if m.mainMenuView.selectedIndex < len(m.mainMenuView.menuItems)-1 {
+			m.mainMenuView.selectedIndex++
+			if m.mainMenuView.selectedIndex >= len(m.mainMenuView.menuItems) {
+				m.mainMenuView.selectedIndex = 0
+			}
+			for !m.mainMenuView.menuItems[m.mainMenuView.selectedIndex].Enabled {
 				m.mainMenuView.selectedIndex++
-				for m.mainMenuView.selectedIndex < len(m.mainMenuView.menuItems) &&
-					!m.mainMenuView.menuItems[m.mainMenuView.selectedIndex].Enabled {
-					m.mainMenuView.selectedIndex++
-				}
 				if m.mainMenuView.selectedIndex >= len(m.mainMenuView.menuItems) {
-					m.mainMenuView.selectedIndex = len(m.mainMenuView.menuItems) - 1
+					m.mainMenuView.selectedIndex = 0
 				}
 			}
 			return m, nil
