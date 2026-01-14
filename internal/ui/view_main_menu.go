@@ -1,59 +1,98 @@
 // internal/ui/view_main_menu.go
+// Modernized Main Menu View
 
 package ui
 
 import (
 	"fmt"
-	"ricambi-manager/internal/domain"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+
+	"ricambi-manager/internal/domain"
 )
 
 func (m *AppModel) viewMainMenu() string {
-	title := TitleStyle.Render("📋 Menu Principale")
+	title := TitleStyle.Render("Dashboard")
 	welcome := SubtitleStyle.Render("Benvenuto, " + m.operator.FullName)
 
-	var menuItems []string
-	shortcutNum := 1
+	// Dashboard stats cards
+	statsRow := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		m.renderStatCard("📦", "Articoli", fmt.Sprintf("%d", m.mainMenuView.stats.totalArticles)),
+		m.renderStatCard("⚠️", "Scorta Bassa", fmt.Sprintf("%d", m.mainMenuView.stats.lowStockItems)),
+		m.renderStatCard("👥", "Clienti", fmt.Sprintf("%d", m.mainMenuView.stats.activeCustomers)),
+		m.renderStatCard("📋", "Ordini", fmt.Sprintf("%d", m.mainMenuView.stats.pendingOrders)),
+	)
 
+	// Quick actions section
+	quickActions := m.renderQuickActions()
+
+	// Menu items with enhanced styling
+	menuTitle := MenuTitleStyle.Render("Menu Navigazione")
+
+	var menuItems []string
 	for i, item := range m.mainMenuView.menuItems {
 		if !item.Enabled {
 			continue
 		}
 
-		shortcut := ShortcutStyle.Render(fmt.Sprintf("[%d]", shortcutNum))
+		shortcut := ShortcutKeyStyle.Render(item.Shortcut)
+		icon := lipgloss.NewStyle().Foreground(ColorMuted).Render(item.Icon)
 		label := item.Label
+		desc := lipgloss.NewStyle().Foreground(ColorMuted).FontSize(10).Render(item.Description)
 
 		if i == m.mainMenuView.selectedIndex {
-			itemLine := SelectedItemStyle.Render("  ► " + shortcut + " " + label)
-			menuItems = append(menuItems, itemLine)
+			row := lipgloss.JoinVertical(
+				lipgloss.Left,
+				lipgloss.JoinHorizontal(lipgloss.Left, "  ► ", shortcut, " ", icon, " ", label),
+				desc,
+			)
+			menuItems = append(menuItems, SelectedItemStyle.Render(row))
 		} else {
-			itemLine := UnselectedItemStyle.Render("    " + shortcut + " " + label)
-			menuItems = append(menuItems, itemLine)
+			row := lipgloss.JoinVertical(
+				lipgloss.Left,
+				lipgloss.JoinHorizontal(lipgloss.Left, "   ", shortcut, " ", icon, " ", label),
+				desc,
+			)
+			menuItems = append(menuItems, UnselectedItemStyle.Render(row))
 		}
-
-		menuItems = append(menuItems, "")
-
-		shortcutNum++
 	}
 
-	if len(menuItems) > 0 {
-		menuItems = menuItems[:len(menuItems)-1]
-	}
+	menuContent := lipgloss.JoinVertical(lipgloss.Left, menuItems...)
+	menuBox := ContentStyle.Render(
+		lipgloss.JoinVertical(
+			lipgloss.Left,
+			menuTitle,
+			"",
+			menuContent,
+		),
+	)
 
-	menu := lipgloss.JoinVertical(lipgloss.Left, menuItems...)
-
-	menuBox := ContentStyle.Render(menu)
-
-	content := lipgloss.JoinVertical(
+	// Main content layout
+	leftPanel := lipgloss.JoinVertical(
 		lipgloss.Left,
 		title,
 		welcome,
 		"",
+		statsRow,
+		"",
+		quickActions,
+	)
+
+	rightPanel := lipgloss.JoinVertical(
+		lipgloss.Right,
 		menuBox,
 	)
 
+	content := lipgloss.JoinHorizontal(
+		lipgloss.Top,
+		leftPanel,
+		rightPanel,
+	)
+
+	// Messages
 	if m.message != "" {
 		content = lipgloss.JoinVertical(
 			lipgloss.Left,
@@ -68,18 +107,71 @@ func (m *AppModel) viewMainMenu() string {
 			lipgloss.Left,
 			content,
 			"",
-			ErrorStyle.Render("❌ "+m.error),
+			ErrorStyle.Render("✗ "+m.error),
 		)
 	}
 
-	availableHeight := m.height - 6
+	availableWidth := m.width - 28 // Account for sidebar
 
-	return lipgloss.Place(
-		m.width,
-		availableHeight,
-		lipgloss.Center,
-		lipgloss.Center,
-		content,
+	return lipgloss.NewStyle().
+		Width(availableWidth).
+		Padding(1, 2).
+		Render(content)
+}
+
+func (m *AppModel) renderStatCard(icon, label, value string) string {
+	iconStyled := lipgloss.NewStyle().FontSize(20).Foreground(ColorPrimary).Render(icon)
+	valueStyled := StatsValueStyle.Render(value)
+	labelStyled := StatsLabelStyle.Render(label)
+
+	return lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(ColorBorder).
+		Background(ColorBgCard).
+		Padding(1, 2).
+		Width(18).
+		Render(
+			lipgloss.JoinVertical(
+				lipgloss.Center,
+				iconStyled,
+				valueStyled,
+				labelStyled,
+			),
+		)
+}
+
+func (m *AppModel) renderQuickActions() string {
+	title := lipgloss.NewStyle().
+		Bold(true).
+		Foreground(ColorFg).
+		Render("Azioni Rapide")
+
+	actions := []struct {
+		key  string
+		desc string
+	}{
+		{"F1", "Nuovo Articolo"},
+		{"F2", "Nuovo Cliente"},
+		{"F3", "Cerca Articolo"},
+		{"F4", "Stampa Etichetta"},
+		{"F5", "Aggiorna Lista"},
+		{"F12", "Esci"},
+	}
+
+	var actionRows []string
+	for _, a := range actions {
+		key := ShortcutKeyStyle.Render(a.key)
+		desc := UnselectedItemStyle.Render(a.desc)
+		actionRows = append(actionRows, lipgloss.JoinHorizontal(lipgloss.Left, key, " ", desc))
+	}
+
+	actionsContent := lipgloss.JoinVertical(lipgloss.Left, actionRows...)
+
+	return lipgloss.JoinVertical(
+		lipgloss.Left,
+		title,
+		"",
+		actionsContent,
 	)
 }
 
@@ -103,8 +195,13 @@ func (m *AppModel) updateMainMenu(msg tea.Msg) (tea.Model, tea.Cmd) {
 					switch item.View {
 					case ViewArticleSearch:
 						m.searchView = &ArticleSearchView{
-							searchType: "code",
-							results:    []*domain.Article{},
+							searchType:  "code",
+							searchTypes: []string{"code", "description", "barcode", "applicability"},
+							results:     []*domain.Article{},
+						}
+					case ViewCustomerSearch:
+						m.customerSearchView = &CustomerSearchView{
+							results: []*domain.Customer{},
 						}
 					}
 
@@ -116,12 +213,9 @@ func (m *AppModel) updateMainMenu(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			if m.mainMenuView.selectedIndex > 0 {
 				m.mainMenuView.selectedIndex--
-				for !m.mainMenuView.menuItems[m.mainMenuView.selectedIndex].Enabled {
+				for m.mainMenuView.selectedIndex > 0 &&
+					!m.mainMenuView.menuItems[m.mainMenuView.selectedIndex].Enabled {
 					m.mainMenuView.selectedIndex--
-					if m.mainMenuView.selectedIndex < 0 {
-						m.mainMenuView.selectedIndex = 0
-						break
-					}
 				}
 			}
 			return m, nil
@@ -147,13 +241,46 @@ func (m *AppModel) updateMainMenu(msg tea.Msg) (tea.Model, tea.Cmd) {
 				switch selectedItem.View {
 				case ViewArticleSearch:
 					m.searchView = &ArticleSearchView{
-						searchType: "code",
-						results:    []*domain.Article{},
+						searchType:  "code",
+						searchTypes: []string{"code", "description", "barcode", "applicability"},
+						results:     []*domain.Article{},
+					}
+				case ViewCustomerSearch:
+					m.customerSearchView = &CustomerSearchView{
+						results: []*domain.Customer{},
 					}
 				}
 
 				return m.navigateTo(selectedItem.View), nil
 			}
+			return m, nil
+
+		case "f1":
+			// Quick action: New article
+			m.setMessage("Funzione non ancora implementata")
+			return m, nil
+
+		case "f2":
+			// Quick action: New customer
+			m.setMessage("Funzione non ancora implementata")
+			return m, nil
+
+		case "f3":
+			// Quick action: Search article
+			m.searchView = &ArticleSearchView{
+				searchType:  "code",
+				searchTypes: []string{"code", "description", "barcode", "applicability"},
+				results:     []*domain.Article{},
+			}
+			return m.navigateTo(ViewArticleSearch), nil
+
+		case "f4":
+			// Quick action: Print label
+			m.setMessage("Funzione non ancora implementata")
+			return m, nil
+
+		case "f5":
+			// Quick action: Refresh
 			return m, nil
 
 		case "q":
@@ -162,4 +289,9 @@ func (m *AppModel) updateMainMenu(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
+}
+
+// getCurrentTime returns formatted current time
+func getCurrentTime() string {
+	return time.Now().Format("15:04:05")
 }

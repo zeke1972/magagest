@@ -54,12 +54,15 @@ ui:
   refresh_rate_ms: 100
   page_size: 20
   theme:
-    primary: "#00ADD8"
-    secondary: "#5DC9E2"
-    success: "#00C851"
-    warning: "#FFD700"
-    danger: "#FF4444"
-    info: "#33B5E5"
+    primary: "#3B82F6"
+    secondary: "#8B5CF6"
+    success: "#10B981"
+    warning: "#F59E0B"
+    danger: "#EF4444"
+    info: "#06B6D4"
+    muted: "#9CA3AF"
+    background: "#111827"
+    card: "#1E293B"
 
 cache:
   ttl_seconds: 300
