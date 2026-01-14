@@ -64,9 +64,11 @@ type AppModel struct {
 	error   string
 	message string
 	loading bool
+	quit    bool
 
 	lastActivity   time.Time
 	sessionTimeout time.Duration
+	quitCh         chan struct{}
 }
 
 type LoginView struct {
@@ -94,6 +96,7 @@ type ArticleSearchView struct {
 	results       []*domain.Article
 	selectedIndex int
 	loading       bool
+	scrollOffset  int
 }
 
 type loginResultMsg struct {
@@ -105,6 +108,12 @@ type searchResultMsg struct {
 	results []*domain.Article
 	err     error
 }
+
+type tickMsg struct {
+	time.Time
+}
+
+type sessionExpiredMsg struct{}
 
 func NewAppModel(db *mongo.Database) *AppModel {
 	articleRepo := repository.NewArticleRepository(db)
@@ -135,15 +144,24 @@ func NewAppModel(db *mongo.Database) *AppModel {
 		searchView:     &ArticleSearchView{},
 		sessionTimeout: 480 * time.Minute,
 		lastActivity:   time.Now(),
+		quitCh:         make(chan struct{}),
 	}
 }
 
 func (m *AppModel) Init() tea.Cmd {
-	return nil
+	return m.tickCmd()
+}
+
+func (m *AppModel) tickCmd() tea.Cmd {
+	return tea.Tick(1*time.Second, func(t time.Time) tea.Msg {
+		return tickMsg{t}
+	})
 }
 
 func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	m.lastActivity = time.Now()
+	if m.quit {
+		return m, tea.Quit
+	}
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -151,15 +169,37 @@ func (m *AppModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		return m, nil
 
+	case tickMsg:
+		if m.operator != nil && time.Since(m.lastActivity) > m.sessionTimeout {
+			m.setError("Sessione scaduta. Effettua nuovamente il login.")
+			m.operator = nil
+			m.currentView = ViewLogin
+			m.viewStack = []ViewState{}
+			m.loginView = &LoginView{}
+		}
+		return m, m.tickCmd()
+
 	case loginResultMsg:
 		return m.handleLoginResult(msg)
 
 	case searchResultMsg:
 		return m.handleSearchResult(msg)
 
+	case sessionExpiredMsg:
+		m.setError("Sessione scaduta per inattività.")
+		m.operator = nil
+		m.currentView = ViewLogin
+		m.viewStack = []ViewState{}
+		m.loginView = &LoginView{}
+		return m, nil
+
 	case tea.KeyMsg:
+		m.lastActivity = time.Now()
 		switch msg.String() {
-		case "ctrl+c", "q":
+		case "ctrl+c":
+			return m, tea.Quit
+
+		case "q":
 			if m.currentView == ViewLogin || m.currentView == ViewMainMenu {
 				return m, tea.Quit
 			}
@@ -243,33 +283,76 @@ func (m *AppModel) renderHeader() string {
 }
 
 func (m *AppModel) renderFooter() string {
+	var sections []string
+
 	breadcrumb := m.renderBreadcrumb()
+	if breadcrumb != "" {
+		sections = append(sections, breadcrumb)
+	}
+
+	status := m.renderStatus()
+	if status != "" {
+		sections = append(sections, status)
+	}
+
 	help := m.renderHelp()
+	if help != "" {
+		sections = append(sections, help)
+	}
+
+	if len(sections) == 0 {
+		return ""
+	}
+
+	footer := lipgloss.JoinVertical(lipgloss.Left, sections...)
+
+	separator := lipgloss.NewStyle().
+		Foreground(ColorBorder).
+		Render(lipgloss.NewStyle().Width(m.width).Render("─"))
 
 	return lipgloss.JoinVertical(
 		lipgloss.Left,
-		breadcrumb,
-		help,
+		separator,
+		footer,
 	)
 }
 
 func (m *AppModel) renderBreadcrumb() string {
-	parts := []string{"Home"}
+	if m.currentView == ViewLogin {
+		return ""
+	}
 
-	for _, view := range m.viewStack {
-		parts = append(parts, m.getViewName(view))
+	var parts []string
+	if len(m.viewStack) > 0 {
+		parts = append(parts, "Home")
+		for _, view := range m.viewStack {
+			parts = append(parts, m.getViewName(view))
+		}
 	}
 	parts = append(parts, m.getViewName(m.currentView))
 
 	breadcrumb := ""
 	for i, part := range parts {
 		if i > 0 {
-			breadcrumb += " > "
+			breadcrumb += " › "
 		}
 		breadcrumb += part
 	}
 
 	return BreadcrumbStyle.Render(breadcrumb)
+}
+
+func (m *AppModel) renderStatus() string {
+	if m.loading {
+		return InfoStyle.Render("⏳ Caricamento in corso...")
+	}
+	if m.message != "" {
+		return SuccessStyle.Render("✓ " + m.message)
+	}
+	if m.error != "" {
+		return ErrorStyle.Render("⚠ " + m.error)
+	}
+	return ""
 }
 
 func (m *AppModel) renderHelp() string {
@@ -278,9 +361,9 @@ func (m *AppModel) renderHelp() string {
 	case ViewLogin:
 		help = "tab: campo successivo • enter: login • ctrl+c: esci"
 	case ViewMainMenu:
-		help = "1-7: selezione rapida • ↑/↓: naviga • enter: conferma • q: esci"
+		help = "1-7: selezione rapida • ↑/↓/j/k: naviga • enter: conferma • q: esci"
 	case ViewArticleSearch:
-		help = "tab: tipo ricerca • digita: cerca • ↑/↓: naviga • enter: seleziona • esc: indietro"
+		help = "tab: tipo ricerca • digita: cerca • ↑/↓/j/k: naviga • pgup/pgdwn: pagina • home/end: inizio/fine • enter: seleziona • esc: indietro"
 	default:
 		help = "esc: indietro • q: esci"
 	}
@@ -458,23 +541,36 @@ func (m *AppModel) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *AppModel) performLogin() tea.Cmd {
 	return func() tea.Msg {
 		ctx := context.Background()
+
+		if m.loginView.username == "" {
+			return loginResultMsg{err: fmt.Errorf("inserire username")}
+		}
+
+		if m.loginView.password == "" {
+			return loginResultMsg{err: fmt.Errorf("inserire password")}
+		}
+
 		operator, err := m.operatorRepo.FindByUsername(ctx, m.loginView.username)
 		if err != nil {
-			return loginResultMsg{err: err}
+			return loginResultMsg{err: fmt.Errorf("credenziali non valide")}
 		}
 
 		if err := operator.CheckPassword(m.loginView.password); err != nil {
-			_ = m.operatorRepo.Update(ctx, operator)
-			return loginResultMsg{err: err}
+			if updateErr := m.operatorRepo.Update(ctx, operator); updateErr != nil {
+				return loginResultMsg{err: fmt.Errorf("errore di sistema: %w", updateErr)}
+			}
+			return loginResultMsg{err: fmt.Errorf("credenziali non valide")}
 		}
 
 		session, err := m.authService.CreateSession(operator, "localhost", "TUI")
 		if err != nil {
-			return loginResultMsg{err: err}
+			return loginResultMsg{err: fmt.Errorf("errore di creazione sessione: %w", err)}
 		}
 
 		operator.SessionToken = session.Token
-		_ = m.operatorRepo.Update(ctx, operator)
+		if err := m.operatorRepo.Update(ctx, operator); err != nil {
+			return loginResultMsg{err: fmt.Errorf("errore di aggiornamento sessione: %w", err)}
+		}
 
 		return loginResultMsg{operator: operator}
 	}
@@ -501,14 +597,17 @@ func (m *AppModel) handleSearchResult(msg searchResultMsg) (*AppModel, tea.Cmd) 
 	m.searchView.loading = false
 
 	if msg.err != nil {
-		m.setError(msg.err.Error())
+		m.setError("Errore durante la ricerca: " + msg.err.Error())
 		m.searchView.results = []*domain.Article{}
+		m.searchView.selectedIndex = 0
+		m.searchView.scrollOffset = 0
 		return m, nil
 	}
 
 	m.clearMessages()
 	m.searchView.results = msg.results
 	m.searchView.selectedIndex = 0
+	m.searchView.scrollOffset = 0
 
 	return m, nil
 }

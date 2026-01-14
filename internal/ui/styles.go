@@ -7,16 +7,16 @@ import (
 )
 
 var (
-	ColorPrimary   = lipgloss.Color("#00ADD8")
-	ColorSecondary = lipgloss.Color("#5DC9E2")
-	ColorSuccess   = lipgloss.Color("#00C851")
-	ColorWarning   = lipgloss.Color("#FFD700")
-	ColorDanger    = lipgloss.Color("#FF4444")
-	ColorInfo      = lipgloss.Color("#33B5E5")
-	ColorMuted     = lipgloss.Color("#666666")
-	ColorBorder    = lipgloss.Color("#444444")
-	ColorBg        = lipgloss.Color("#1a1a1a")
-	ColorFg        = lipgloss.Color("#ffffff")
+	ColorPrimary   = lipgloss.Color("#7aa2f7")
+	ColorSecondary = lipgloss.Color("#9aa5ce")
+	ColorSuccess   = lipgloss.Color("#9ece6a")
+	ColorWarning   = lipgloss.Color("#e0af68")
+	ColorDanger    = lipgloss.Color("#f7768e")
+	ColorInfo      = lipgloss.Color("#0db9d7")
+	ColorMuted     = lipgloss.Color("#565f89")
+	ColorBorder    = lipgloss.Color("#414868")
+	ColorBg        = lipgloss.Color("#1a1b26")
+	ColorFg        = lipgloss.Color("#c0caf5")
 )
 
 var (
@@ -32,20 +32,23 @@ var (
 	DateTimeStyle = lipgloss.NewStyle().
 			Foreground(ColorWarning).
 			Bold(true).
+			Background(lipgloss.Color("#1f2335")).
+			Padding(0, 1).
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(ColorBorder).
-			Padding(0, 1)
+			BorderForeground(ColorBorder)
 
 	MenuStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(ColorBorder).
 			Padding(1, 2).
-			MarginRight(2)
+			MarginRight(2).
+			Background(lipgloss.Color("#24283b"))
 
 	ContentStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(ColorBorder).
-			Padding(1, 2)
+			Padding(1, 2).
+			Background(lipgloss.Color("#24283b"))
 
 	StatusBarStyle = lipgloss.NewStyle().
 			Background(ColorPrimary).
@@ -58,75 +61,106 @@ var (
 			MarginTop(1)
 
 	UnselectedItemStyle = lipgloss.NewStyle().
-				Foreground(ColorMuted).
-				Padding(0, 1)
+				Foreground(ColorFg).
+				Padding(0, 1).
+				Background(lipgloss.Color("#24283b"))
 
 	SelectedItemStyle = lipgloss.NewStyle().
-				Foreground(ColorPrimary).
+				Foreground(ColorBg).
+				Background(ColorPrimary).
 				Bold(true).
-				Padding(0, 1)
+				Padding(0, 1).
+				MarginLeft(1).
+				MarginRight(1)
 
 	ShortcutStyle = lipgloss.NewStyle().
 			Foreground(ColorWarning).
-			Bold(true)
+			Bold(true).
+			Padding(0, 1)
 
 	TableHeaderStyle = lipgloss.NewStyle().
 				Bold(true).
 				Foreground(ColorPrimary).
 				BorderBottom(true).
 				BorderStyle(lipgloss.NormalBorder()).
-				BorderForeground(ColorBorder)
+				BorderForeground(ColorBorder).
+				Padding(0, 1).
+				Background(lipgloss.Color("#1f2335"))
 
 	TableCellStyle = lipgloss.NewStyle().
-			Padding(0, 1)
+			Padding(0, 1).
+			Foreground(ColorFg)
 
 	TableSelectedStyle = lipgloss.NewStyle().
-				Foreground(ColorPrimary).
+				Foreground(ColorBg).
+				Background(ColorPrimary).
 				Bold(true).
 				Padding(0, 1)
 
 	InputStyle = lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
-			BorderForeground(ColorPrimary).
-			Padding(0, 1)
+			BorderForeground(ColorBorder).
+			Padding(0, 1).
+			Background(lipgloss.Color("#1f2335")).
+			Foreground(ColorFg).
+			Width(40)
 
 	InputFocusedStyle = lipgloss.NewStyle().
 				Border(lipgloss.RoundedBorder()).
 				BorderForeground(ColorSuccess).
-				Padding(0, 1)
+				Padding(0, 1).
+				Background(lipgloss.Color("#1f2335")).
+				Foreground(ColorFg).
+				Width(40)
 
 	ButtonStyle = lipgloss.NewStyle().
 			Background(ColorPrimary).
 			Foreground(ColorBg).
 			Padding(0, 2).
 			MarginRight(1).
-			Bold(true)
+			Bold(true).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(ColorPrimary)
 
 	ButtonActiveStyle = lipgloss.NewStyle().
 				Background(ColorSuccess).
 				Foreground(ColorBg).
 				Padding(0, 2).
 				MarginRight(1).
-				Bold(true)
+				Bold(true).
+				Border(lipgloss.RoundedBorder()).
+				BorderForeground(ColorSuccess)
 
 	ErrorStyle = lipgloss.NewStyle().
-			Foreground(ColorDanger).
+			Foreground(ColorBg).
+			Background(ColorDanger).
 			Bold(true).
-			Padding(1)
+			Padding(0, 1).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(ColorDanger)
 
 	WarningStyle = lipgloss.NewStyle().
-			Foreground(ColorWarning).
+			Foreground(ColorBg).
+			Background(ColorWarning).
 			Bold(true).
-			Padding(1)
+			Padding(0, 1).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(ColorWarning)
 
 	SuccessStyle = lipgloss.NewStyle().
-			Foreground(ColorSuccess).
+			Foreground(ColorBg).
+			Background(ColorSuccess).
 			Bold(true).
-			Padding(1)
+			Padding(0, 1).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(ColorSuccess)
 
 	InfoStyle = lipgloss.NewStyle().
-			Foreground(ColorInfo).
-			Padding(1)
+			Foreground(ColorBg).
+			Background(ColorInfo).
+			Padding(0, 1).
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(ColorInfo)
 
 	BreadcrumbStyle = lipgloss.NewStyle().
 			Foreground(ColorMuted).
@@ -136,31 +170,49 @@ var (
 			Background(ColorInfo).
 			Foreground(ColorBg).
 			Padding(0, 1).
-			MarginLeft(1)
+			MarginLeft(1).
+			Bold(true)
 
 	BadgeSuccessStyle = lipgloss.NewStyle().
 				Background(ColorSuccess).
 				Foreground(ColorBg).
 				Padding(0, 1).
-				MarginLeft(1)
+				MarginLeft(1).
+				Bold(true)
 
 	BadgeWarningStyle = lipgloss.NewStyle().
 				Background(ColorWarning).
 				Foreground(ColorBg).
 				Padding(0, 1).
-				MarginLeft(1)
+				MarginLeft(1).
+				Bold(true)
 
 	BadgeDangerStyle = lipgloss.NewStyle().
 				Background(ColorDanger).
 				Foreground(ColorBg).
 				Padding(0, 1).
-				MarginLeft(1)
+				MarginLeft(1).
+				Bold(true)
 
 	ProgressBarStyle = lipgloss.NewStyle().
-				Foreground(ColorSuccess)
+				Foreground(ColorSuccess).
+				Bold(true)
 
 	ProgressBarEmptyStyle = lipgloss.NewStyle().
 				Foreground(ColorMuted)
+
+	CardStyle = lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(ColorBorder).
+			Padding(1, 2).
+			Margin(1, 0).
+			Background(lipgloss.Color("#24283b"))
+
+	ScrollThumbStyle = lipgloss.NewStyle().
+				Background(ColorPrimary)
+
+	ScrollTrackStyle = lipgloss.NewStyle().
+				Background(ColorBorder)
 )
 
 func RenderProgressBar(percent float64, width int) string {
